@@ -28,7 +28,7 @@
 #include <pthread.h>
 
 // Define parameters
-#define QUEUESIZE 1000    // size of key-value queue
+#define QUEUESIZE 10000000    // size of key-value queue
 #define KEYSIZE 100
 #define VALUESIZE 100
 
@@ -42,7 +42,7 @@ struct queueElement {
 
 // Queue Structure
 struct queue {
-    struct queueElement data[QUEUESIZE];
+    struct queueElement* data;
     unsigned head;  // index of first item in queue
     unsigned count;  // number of items in queue
     pthread_mutex_t lock;
@@ -50,8 +50,18 @@ struct queue {
     pthread_cond_t write_ready; // wait for count < QUEUESIZE
 };
 
-int queue_init(struct queue *Q)
+// Method definitions
+int queue_init(struct queue *Q);
+int queue_add(struct queue *Q, char * key, char * value);
+int queue_remove(struct queue *Q, char *item);
+void queuePrint(struct queue *Q);
+int indexOfElement(struct queue *Q, char * currElement);
+int alreadyExists(struct queue *Q, char * currElement);
+void queueDestroy(struct queue *Q);
+
+        int queue_init(struct queue *Q)
 {
+    Q->data = malloc(QUEUESIZE * sizeof(struct queueElement));
     Q->head = 0;
     Q->count = 0;
     int i = pthread_mutex_init(&Q->lock, NULL);
@@ -65,7 +75,7 @@ int queue_init(struct queue *Q)
     return EXIT_SUCCESS;
 }
 
-int queue_add(struct queue *Q, char * item)
+int queue_add(struct queue *Q, char * key, char * value)
 {
     pthread_mutex_lock(&Q->lock); // make sure no one else touches Q until we're done
 
@@ -80,7 +90,8 @@ int queue_add(struct queue *Q, char * item)
     unsigned index = Q->head + Q->count;
     if (index >= QUEUESIZE) index -= QUEUESIZE;
 
-    strcpy(Q->data[index].key, item);
+    strcpy(Q->data[index].key, key);
+    strcpy(Q->data[index].value, value);
     ++Q->count;
 
     pthread_mutex_unlock(&Q->lock); // now we're done
@@ -96,16 +107,25 @@ int queue_remove(struct queue *Q, char *item)
     while (Q->count == 0) {
         pthread_cond_wait(&Q->read_ready, &Q->lock);
     }
-
     // now we have exclusive access and queue is non-empty
 
-    item = Q->data[Q->head].key;  // write value at head to pointer
-    --Q->count;
+    // check if key exists, if it does, delete the element and shift everything else over.
+    if (alreadyExists(Q, item)) {
+        int index = indexOfElement(Q, item);
+        --Q->count;
+        for (int i = index; i < Q->count; i++) {
+            Q->data[i] = Q->data[i+1];
+        }
+    }
+    // in case the key does not exist
+    else {
+        perror("ERROR: key-not-found!\n");
+    }
+
     ++Q->head;
     if (Q->head == QUEUESIZE) Q->head = 0;
 
     pthread_mutex_unlock(&Q->lock);
-
     pthread_cond_signal(&Q->write_ready);
 
     return EXIT_SUCCESS;
@@ -114,7 +134,16 @@ int queue_remove(struct queue *Q, char *item)
 void queuePrint(struct queue *Q) {
     int count = Q->count;
     for (int i = 0; i < count; i++) {
-        printf("Value at %d is %s\n", i, Q->data[i].key);
+        printf("Value at %d: KEY IS \'%s\' VALUE IS \'%s\'\n", i, Q->data[i].key, Q->data[i].value);
+    }
+}
+
+int indexOfElement(struct queue *Q, char * currElement) {
+    int count = Q->count;
+    for (int i = 0; i < count; i++) {
+        if (strcmp(Q->data[i].key, currElement) == 0) {
+            return i;
+        }
     }
 }
 
@@ -129,6 +158,10 @@ int alreadyExists(struct queue *Q, char * currElement) {
     return 0;
 }
 
+void queueDestroy(struct queue *Q) {
+    free(Q->data);
+}
+
 // ------------------------------- END OF QUEUE STRUCTURE -------------------------------
 
 
@@ -140,11 +173,23 @@ int main() {
     struct queue Q;
     queue_init(&Q);
 
-    queue_add(&Q, "hello");
-    queue_add(&Q, "pee");
+    queue_add(&Q, "key1", "value1");
+    queue_add(&Q, "key2", "value2");
+    queue_add(&Q, "key3", "value3");
+    queue_add(&Q, "key4", "value4");
+    queue_add(&Q, "key5", "value5");
+    queue_add(&Q, "key6", "value6");
     queuePrint(&Q);
 
-    //TODO: implement value in key value pair. Handle commands. Handle connection. Handle multithreading.
+    queue_remove(&Q, "key1");
 
+    printf("\n");
+
+    queuePrint(&Q);
+
+    queueDestroy(&Q);
+
+    //TODO: Implement dyanmically allocated data array. Implement value in key value pair. Handle commands. Handle connection. Handle multithreading.
+    //                  DONE
     return 0;
 }
