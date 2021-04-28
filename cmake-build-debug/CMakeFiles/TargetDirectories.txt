@@ -1,0 +1,3 @@
+/home/cyrus/cs214/projectThree/HashServer/cmake-build-debug/CMakeFiles/rebuild_cache.dir
+/home/cyrus/cs214/projectThree/HashServer/cmake-build-debug/CMakeFiles/edit_cache.dir
+/home/cyrus/cs214/projectThree/HashServer/cmake-build-debug/CMakeFiles/HashServer.dir
