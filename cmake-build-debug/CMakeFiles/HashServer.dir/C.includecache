@@ -7,6 +7,26 @@
 #IncludeRegexTransform: 
 
 /home/cyrus/cs214/projectThree/HashServer/main.c
+sys/types.h
+-
+sys/stat.h
+-
+unistd.h
+-
+dirent.h
+-
+regex.h
+-
 stdio.h
+-
+stdlib.h
+-
+string.h
+-
+errno.h
+-
+err.h
+-
+pthread.h
 -
 
