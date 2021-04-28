@@ -77,6 +77,7 @@ void queueDestroy(struct queue *Q);
 
 int queue_add(struct queue *Q, char * key, char * value)
 {
+
     pthread_mutex_lock(&Q->lock); // make sure no one else touches Q until we're done
 
     while (Q->count == QUEUESIZE) {
@@ -122,7 +123,7 @@ int queue_remove(struct queue *Q, char *item)
         perror("ERROR: key-not-found!\n");
     }
 
-    ++Q->head;
+//    --Q->head;
     if (Q->head == QUEUESIZE) Q->head = 0;
 
     pthread_mutex_unlock(&Q->lock);
@@ -182,6 +183,8 @@ int main() {
     queuePrint(&Q);
 
     queue_remove(&Q, "key1");
+    queue_add(&Q, "key1", "value1");
+    queue_add(&Q, "key7", "value7");
 
     printf("\n");
 
