@@ -165,7 +165,23 @@ void queueDestroy(struct queue *Q) {
 
 // ------------------------------- END OF QUEUE STRUCTURE -------------------------------
 
+// ------------------------------- HANDLING COMMANDS -------------------------------
 
+void commandHandler(struct queue *Q, char * command) {
+
+    if (strcmp(command, "SET")) {
+
+    }
+    else if (strcmp(command, "GET")) {
+
+    }
+    else if (strcmp(command, "DEL")) {
+
+    }
+
+}
+
+// ------------------------------- END OF HANDLING COMMANDS -------------------------------
 
 
 int main() {
@@ -193,6 +209,6 @@ int main() {
     queueDestroy(&Q);
 
     //TODO: Implement dyanmically allocated data array. Implement value in key value pair. Handle commands. Handle connection. Handle multithreading.
-    //                  DONE
+    //                  DONE                                        DONE
     return 0;
 }
