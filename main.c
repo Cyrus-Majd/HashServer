@@ -26,11 +26,16 @@
 #include <errno.h>
 #include <err.h>
 #include <pthread.h>
+#include <netinet/in.h>
 
 // Define parameters
 #define QUEUESIZE 10000000    // size of key-value queue
 #define KEYSIZE 100
 #define VALUESIZE 100
+#define DEBUG_QUEUE 0
+#define SERVER_PORT 18000
+#define MAXLINE 4096
+#define SA struct sockaddr
 
 // ------------------------------- QUEUE STRUCTURE -------------------------------
 
@@ -184,27 +189,57 @@ void commandHandler(struct queue *Q, char * command) {
 // ------------------------------- END OF HANDLING COMMANDS -------------------------------
 
 
-int main() {
+int main(int argc, char *argv[argc]) {
     printf("Hello, World!\n");
+
+    int listenfd, connfd, n;
+    struct sockaddr_in servaddr;
+    uint8_t buff[MAXLINE + 1];
+    uint8_t recvline[MAXLINE + 1];
+
+    // allocate a socket
+    if ((listenfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("socket allocation error!\n");
+        return EXIT_FAILURE;
+    }
+
+    // setting up the address
+    bzero(&servaddr, sizeof(servaddr));
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    servaddr.sin_port = htons(SERVER_PORT);
+
+    // listen and bind
+    if ((bind(listenfd, (SA *) &servaddr, sizeof(servaddr)) < 0)) {
+        perror("bind allocation error!\n");
+        return EXIT_FAILURE;
+    }
+
+    if (listen(listenfd, 10) < 0) {
+        perror("listening error!\n");
+        return EXIT_FAILURE;
+    }
 
     struct queue Q;
     queue_init(&Q);
 
-    queue_add(&Q, "key1", "value1");
-    queue_add(&Q, "key2", "value2");
-    queue_add(&Q, "key3", "value3");
-    queue_add(&Q, "key4", "value4");
-    queue_add(&Q, "key5", "value5");
-    queue_add(&Q, "key6", "value6");
-    queuePrint(&Q);
+    if (DEBUG_QUEUE) {
+        queue_add(&Q, "key1", "value1");
+        queue_add(&Q, "key2", "value2");
+        queue_add(&Q, "key3", "value3");
+        queue_add(&Q, "key4", "value4");
+        queue_add(&Q, "key5", "value5");
+        queue_add(&Q, "key6", "value6");
+        queuePrint(&Q);
 
-    queue_remove(&Q, "key1");
-    queue_add(&Q, "key1", "value1");
-    queue_add(&Q, "key7", "value7");
+        queue_remove(&Q, "key1");
+        queue_add(&Q, "key1", "value1");
+        queue_add(&Q, "key7", "value7");
 
-    printf("\n");
+        printf("\n");
 
-    queuePrint(&Q);
+        queuePrint(&Q);
+    }
 
     queueDestroy(&Q);
 
