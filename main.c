@@ -33,7 +33,7 @@
 #define KEYSIZE 100
 #define VALUESIZE 100
 #define DEBUG_QUEUE 0
-#define SERVER_PORT 18000
+#define SERVER_PORT 18001
 #define MAXLINE 4096
 #define SA struct sockaddr
 
@@ -63,8 +63,10 @@ void queuePrint(struct queue *Q);
 int indexOfElement(struct queue *Q, char * currElement);
 int alreadyExists(struct queue *Q, char * currElement);
 void queueDestroy(struct queue *Q);
+int commandHandler(char * command);
+char* bin2hex(const unsigned char *input, size_t len);
 
-        int queue_init(struct queue *Q)
+int queue_init(struct queue *Q)
 {
     Q->data = malloc(QUEUESIZE * sizeof(struct queueElement));
     Q->head = 0;
@@ -172,16 +174,40 @@ void queueDestroy(struct queue *Q) {
 
 // ------------------------------- HANDLING COMMANDS -------------------------------
 
-void commandHandler(struct queue *Q, char * command) {
-
-    if (strcmp(command, "SET")) {
-
+char* bin2hex(const unsigned char *input, size_t len) {
+    char * result;
+    char * hexits = "0123456789ABCDEF";
+    if (input == NULL || len <= 0) {
+        return NULL;
     }
-    else if (strcmp(command, "GET")) {
 
+    int resultlength = (len*3) + 1;
+
+    result = malloc(resultlength);
+    bzero(result, resultlength);
+
+    for (int i = 0; i < len; i++) {
+        result[i*3] = hexits[input[i] >> 4];
+        result[(i*3) + 1] = hexits[input[i] & 0x0F];
+        result[(i*3) + 2] = ' ';
     }
-    else if (strcmp(command, "DEL")) {
 
+    return result;
+}
+
+int commandHandler(char * command) {
+    printf("read command: %s. Compared to SET: %d\n", command, strcmp(command, "SET"));
+    if (strcmp(command, "SET") == 0 || strcmp(command, "SET\n") == 0) {
+        return 0;
+    }
+    else if (strcmp(command, "GET") == 0) {
+        return 1;
+    }
+    else if (strcmp(command, "DEL") == 0) {
+        return 2;
+    }
+    else {
+        return 3;
     }
 
 }
@@ -222,6 +248,106 @@ int main(int argc, char *argv[argc]) {
 
     struct queue Q;
     queue_init(&Q);
+
+    // endless loop POG. listening for connections B)
+    for (;;) {
+        uint8_t buff[MAXLINE + 1];
+        uint8_t recvline[MAXLINE + 1];
+        struct sockaddr_in addr;
+        socklen_t addr_len;
+
+        // accept until connection arrives, returns to connfd when connection is made
+        printf("Waiting for a connection on port %d\n", SERVER_PORT);
+        fflush(stdout);
+        connfd = accept(listenfd, (SA *) NULL, NULL);
+
+        // zero out the recieve buffer to make sure it ends null-terminated.
+//        memset(recvline, 0, MAXLINE);
+
+        // read client message
+        int counter = 0;
+        int limit = 0;
+        int commandType;
+        char paramOne[1000];
+        char paramTwo[1000];
+        while ( (n = read(connfd, recvline, MAXLINE-1)) > 0) {
+            fprintf(stdout, "\n%s", recvline);
+            char word[1000];
+            strncpy(word, recvline, strlen(recvline)-2);
+//            strcpy(word, recvline);
+            strcat(word, "");
+            printf("==========%s=========", word);
+            if (word[strlen(word)-1] == '\n'){
+                printf("NEWLINE DETECTED!\n");
+                word[strlen(word)-2] = '\0';
+            }
+
+            if (counter == 0) {
+//                printf("TESING: %s", recvline);
+                int tmp = commandHandler(word);
+                if (tmp == 0) { // we have a SET, so 3 arguements
+                    limit = 1;
+                    commandType = 0;
+                }
+                else if (tmp == 1 || tmp == 2) {
+                    limit = 0; // either a GET or a DEL
+                    if (tmp == 1) {
+                        commandType = 1;
+                    }
+                    else {
+                        commandType = 2;
+                    }
+                }
+                else {
+                    perror("INVALID COMMAND!\n");
+                    snprintf((char*) buff, sizeof(buff), "INVALID COMMAND! Ending Program.\n");
+                    queueDestroy(&Q);
+                    return EXIT_FAILURE;
+                }
+            }
+            if (counter == 1) {
+                strcpy(paramOne, word);
+            }
+            if (counter == 2) {
+                strcpy(paramTwo, word);
+            }
+            if (counter > limit) {
+                break;
+            }
+
+            memset(recvline, 0, MAXLINE);
+            counter++;
+        }
+
+        if (n < 0) {
+            perror("read error!\n");
+            queueDestroy(&Q);
+            return EXIT_FAILURE;
+        }
+
+        // response
+        snprintf((char*) buff, sizeof(buff), "HTTP/1.0 200 OK\r\n\r\nHello :)");
+
+        if (commandType == 0) {
+            queue_add(&Q, paramOne, paramTwo);
+        }
+        else if (commandType == 1){
+            //TODO IMPLEMENT GET_BY_KEY
+        }
+        else {
+            queue_remove(&Q, paramOne);
+        }
+
+        printf("CURRENT CONTENTS OF THE QUEUE:\n");
+        queuePrint(&Q);
+
+        // closing things
+        write(connfd, (char*) buff, strlen((char*) buff));
+        close(connfd);
+    }
+
+//    struct queue Q;
+//    queue_init(&Q);
 
     if (DEBUG_QUEUE) {
         queue_add(&Q, "key1", "value1");
