@@ -35,6 +35,7 @@
 #define DEBUG_QUEUE 0
 #define SERVER_PORT 18001
 #define MAXLINE 4096
+#define DEBUG_SOCKETS 1
 #define SA struct sockaddr
 
 // ------------------------------- QUEUE STRUCTURE -------------------------------
@@ -139,6 +140,15 @@ int queue_remove(struct queue *Q, char *item)
     return EXIT_SUCCESS;
 }
 
+char* queue_get(struct queue *Q, char *key) {
+    int count = Q->count;
+    for (int i = 0; i < count; i++) {
+        if (strcmp(Q->data[i].key, key) == 0) {
+            return Q->data[i].value;
+        }
+    }
+}
+
 void queuePrint(struct queue *Q) {
     int count = Q->count;
     for (int i = 0; i < count; i++) {
@@ -196,14 +206,14 @@ char* bin2hex(const unsigned char *input, size_t len) {
 }
 
 int commandHandler(char * command) {
-    printf("read command: %s. Compared to SET: %d\n", command, strcmp(command, "SET"));
+    printf("read command: %s. Compared to DEL and DELnewline: %d %d\n", command, strcmp(command, "DEL"), strcmp(command, "DEL\n"));
     if (strcmp(command, "SET") == 0 || strcmp(command, "SET\n") == 0) {
         return 0;
     }
-    else if (strcmp(command, "GET") == 0) {
+    else if (strcmp(command, "GET") == 0 || strcmp(command, "GET\n") == 0) {
         return 1;
     }
-    else if (strcmp(command, "DEL") == 0) {
+    else if (strcmp(command, "DEL") == 0 || strcmp(command, "DEL\n") == 0) {
         return 2;
     }
     else {
@@ -220,8 +230,6 @@ int main(int argc, char *argv[argc]) {
 
     int listenfd, connfd, n;
     struct sockaddr_in servaddr;
-    uint8_t buff[MAXLINE + 1];
-    uint8_t recvline[MAXLINE + 1];
 
     // allocate a socket
     if ((listenfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -249,107 +257,117 @@ int main(int argc, char *argv[argc]) {
     struct queue Q;
     queue_init(&Q);
 
-    // endless loop POG. listening for connections B)
-    for (;;) {
-        uint8_t buff[MAXLINE + 1];
-        uint8_t recvline[MAXLINE + 1];
-        struct sockaddr_in addr;
-        socklen_t addr_len;
+    if (DEBUG_SOCKETS) {
+        // endless loop POG. listening for connections B)
+        for (;;) {
+            char buff[MAXLINE + 1];
+            struct sockaddr_in addr;
+            socklen_t addr_len;
 
-        // accept until connection arrives, returns to connfd when connection is made
-        printf("Waiting for a connection on port %d\n", SERVER_PORT);
-        fflush(stdout);
-        connfd = accept(listenfd, (SA *) NULL, NULL);
+            // accept until connection arrives, returns to connfd when connection is made
+            printf("Waiting for a connection on port %d\n", SERVER_PORT);
+            fflush(stdout);
+            connfd = accept(listenfd, (SA *) NULL, NULL);
 
-        // zero out the recieve buffer to make sure it ends null-terminated.
+            // zero out the recieve buffer to make sure it ends null-terminated.
 //        memset(recvline, 0, MAXLINE);
 
-        // read client message
-        int counter = 0;
-        int limit = 0;
-        int commandType;
-        char paramOne[1000];
-        char paramTwo[1000];
-        while ( (n = read(connfd, recvline, MAXLINE-1)) > 0) {
-            fprintf(stdout, "\n%s", recvline);
-            char word[1000];
-            strncpy(word, recvline, strlen(recvline)-2);
+            int escape = 0;
+            while (escape == 0) {
+                // read client message
+                int counter = 0;
+                int limit = 0;
+                int commandType;
+                char paramOne[1000] = "";
+                char paramTwo[1000] = "";
+                char recvline[MAXLINE + 1];
+                while ((n = read(connfd, recvline, MAXLINE - 1)) > 0) {
+                    char word[1000] = "";
+//                fprintf(stdout, "\nRECVLINE: %s WORD: %s\n", recvline, word);
 //            strcpy(word, recvline);
-            strcat(word, "");
-            printf("==========%s=========", word);
-            if (word[strlen(word)-1] == '\n'){
-                printf("NEWLINE DETECTED!\n");
-                word[strlen(word)-2] = '\0';
-            }
+                    strncpy(word, recvline, strlen(recvline) - 2);
+                    strcpy(recvline, "");
+                    strcat(word, "");
+                    if (counter == 0) {
+                        char substr[7];
+                        strncpy(substr, word, 3);
+                        strcpy(word, substr);
+                    }
+                    fprintf(stdout, "\nRECVLINE: %s WORD: %s\n", recvline, word);
+//            printf("==========%s=========", word);
+                    if (word[strlen(word) - 1] == '\n') {
+//                printf("NEWLINE DETECTED!\n");
+                        word[strlen(word) - 2] = '\0';
+                    }
 
-            if (counter == 0) {
+                    if (counter == 0) {
 //                printf("TESING: %s", recvline);
-                int tmp = commandHandler(word);
-                if (tmp == 0) { // we have a SET, so 3 arguements
-                    limit = 1;
-                    commandType = 0;
-                }
-                else if (tmp == 1 || tmp == 2) {
-                    limit = 0; // either a GET or a DEL
-                    if (tmp == 1) {
-                        commandType = 1;
+                        int tmp = commandHandler(word);
+                        if (tmp == 0) { // we have a SET, so 3 arguements
+                            limit = 1;
+                            commandType = 0;
+                        } else if (tmp == 1 || tmp == 2) {
+                            limit = 0; // either a GET or a DEL
+                            if (tmp == 1) {
+                                commandType = 1;
+                            } else {
+                                commandType = 2;
+                            }
+                        } else {
+                            perror("INVALID COMMAND!\n");
+                            snprintf((char *) buff, sizeof(buff), "INVALID COMMAND! Ending Program.\n");
+                            queueDestroy(&Q);
+                            return EXIT_FAILURE;
+                        }
                     }
-                    else {
-                        commandType = 2;
+                    if (counter == 1) {
+                        strcpy(paramOne, word);
                     }
+                    if (counter == 2) {
+                        strcpy(paramTwo, word);
+                    }
+                    if (counter > limit) {
+                        break;
+                    }
+
+                    memset(recvline, 0, MAXLINE);
+                    recvline[0] = '\0';
+                    strcpy(recvline, "");
+                    printf("CONTENTS OF RECV AFTER CLEAN: %s", recvline);
+                    counter++;
                 }
-                else {
-                    perror("INVALID COMMAND!\n");
-                    snprintf((char*) buff, sizeof(buff), "INVALID COMMAND! Ending Program.\n");
+
+                if (n < 0) {
+                    perror("read error!\n");
                     queueDestroy(&Q);
                     return EXIT_FAILURE;
                 }
+
+                // response
+                snprintf((char *) buff, sizeof(buff), "HTTP/1.0 200 OK\r\n\r\nHello :)");
+
+                if (commandType == 0) {
+                    queue_add(&Q, paramOne, paramTwo);
+                } else if (commandType == 1) {
+                    queue_get(&Q, paramOne);
+                } else {
+                    queue_remove(&Q, paramOne);
+                }
+
+                printf("CURRENT CONTENTS OF THE QUEUE:\n");
+                queuePrint(&Q);
+                printf("=============================\n\n");
+
             }
-            if (counter == 1) {
-                strcpy(paramOne, word);
-            }
-            if (counter == 2) {
-                strcpy(paramTwo, word);
-            }
-            if (counter > limit) {
-                break;
-            }
-
-            memset(recvline, 0, MAXLINE);
-            counter++;
+            // closing things
+            write(connfd, (char *) buff, strlen((char *) buff));
+            close(connfd);
         }
-
-        if (n < 0) {
-            perror("read error!\n");
-            queueDestroy(&Q);
-            return EXIT_FAILURE;
-        }
-
-        // response
-        snprintf((char*) buff, sizeof(buff), "HTTP/1.0 200 OK\r\n\r\nHello :)");
-
-        if (commandType == 0) {
-            queue_add(&Q, paramOne, paramTwo);
-        }
-        else if (commandType == 1){
-            //TODO IMPLEMENT GET_BY_KEY
-        }
-        else {
-            queue_remove(&Q, paramOne);
-        }
-
-        printf("CURRENT CONTENTS OF THE QUEUE:\n");
-        queuePrint(&Q);
-
-        // closing things
-        write(connfd, (char*) buff, strlen((char*) buff));
-        close(connfd);
     }
 
-//    struct queue Q;
-//    queue_init(&Q);
-
     if (DEBUG_QUEUE) {
+        struct queue Q;
+        queue_init(&Q);
         queue_add(&Q, "key1", "value1");
         queue_add(&Q, "key2", "value2");
         queue_add(&Q, "key3", "value3");
@@ -365,11 +383,13 @@ int main(int argc, char *argv[argc]) {
         printf("\n");
 
         queuePrint(&Q);
+
+        printf("VALUE OF KEY3: %s", queue_get(&Q, "key3"));
     }
 
     queueDestroy(&Q);
 
     //TODO: Implement dyanmically allocated data array. Implement value in key value pair. Handle commands. Handle connection. Handle multithreading.
-    //                  DONE                                        DONE
+    //                  DONE                                        DONE                        DONE                DONE
     return 0;
 }
