@@ -34,7 +34,7 @@
 #define KEYSIZE 100
 #define VALUESIZE 100
 #define DEBUG_QUEUE 0
-#define SERVER_PORT 18000
+#define SERVER_PORT 18003
 #define MAXLINE 4096
 #define DEBUG_SOCKETS 1
 #define SA struct sockaddr
@@ -223,7 +223,7 @@ int commandHandler(char * command) {
 
 }
 
-// handles cntrl C when the user ends a connection
+// handles cntrl C when the server wants to end.
 void sig_handler(int signum){
     //Return type of the handler function should be void
     printf("\nInside handler function\n");
@@ -280,7 +280,7 @@ int main(int argc, char *argv[argc]) {
 //        memset(recvline, 0, MAXLINE);
 
             int escape = 0;
-            signal(SIGINT,sig_handler);
+//            signal(SIGINT,sig_handler);
             while (escape == 0) {
                 // read client message
                 int counter = 0;
@@ -325,7 +325,7 @@ int main(int argc, char *argv[argc]) {
                             printf("%d%d%d", word[0], word[1], word[2]);
                             perror(" INVALID COMMAND!\n");
                             snprintf((char *) buff, sizeof(buff), "INVALID COMMAND! Ending Program.\n");
-                            queueDestroy(&Q);
+//                            queueDestroy(&Q);
                             escape = 1;
                             break;
                             return EXIT_FAILURE;
