@@ -34,7 +34,7 @@
 #define KEYSIZE 100
 #define VALUESIZE 100
 #define DEBUG_QUEUE 0
-#define SERVER_PORT 18003
+#define SERVER_PORT 18000
 #define MAXLINE 4096
 #define DEBUG_SOCKETS 1
 #define SA struct sockaddr
@@ -61,6 +61,7 @@ struct queue {
 int queue_init(struct queue *Q);
 int queue_add(struct queue *Q, char * key, char * value);
 int queue_remove(struct queue *Q, char *item);
+int queue_remove_UNLOCKED(struct queue *Q, char *item);
 void queuePrint(struct queue *Q);
 int indexOfElement(struct queue *Q, char * currElement);
 int alreadyExists(struct queue *Q, char * currElement);
@@ -97,6 +98,12 @@ int queue_add(struct queue *Q, char * key, char * value)
 
     // at this point, we hold the lock & Q->count < QUEUESIZE
 
+    // prevent duplicate keys
+    if (alreadyExists(Q, key)){
+        printf("Deleting the duplicate element!\n");
+        queue_remove_UNLOCKED(Q, key);
+    }
+
     unsigned index = Q->head + Q->count;
     if (index >= QUEUESIZE) index -= QUEUESIZE;
 
@@ -110,13 +117,49 @@ int queue_add(struct queue *Q, char * key, char * value)
     return 0;
 }
 
-int queue_remove(struct queue *Q, char *item)
+int queue_remove_UNLOCKED(struct queue *Q, char *item)
 {
-    pthread_mutex_lock(&Q->lock);
+//    printf("ONE\n");
 
+//    printf("TWO\n");
     while (Q->count == 0) {
         pthread_cond_wait(&Q->read_ready, &Q->lock);
     }
+//    printf("THREE\n");
+    // now we have exclusive access and queue is non-empty
+
+    // check if key exists, if it does, delete the element and shift everything else over.
+    if (alreadyExists(Q, item)) {
+        int index = indexOfElement(Q, item);
+        --Q->count;
+        for (int i = index; i < Q->count; i++) {
+            Q->data[i] = Q->data[i+1];
+        }
+    }
+        // in case the key does not exist
+    else {
+        perror("ERROR: key-not-found!\n");
+    }
+//    printf("FOUR\n");
+//    --Q->head;
+    if (Q->head == QUEUESIZE) Q->head = 0;
+
+//    printf("FIVE\n");
+
+//    printf("SIX\n");
+    return EXIT_SUCCESS;
+}
+
+int queue_remove(struct queue *Q, char *item)
+{
+//    printf("ONE\n");
+    pthread_mutex_lock(&Q->lock);
+
+//    printf("TWO\n");
+    while (Q->count == 0) {
+        pthread_cond_wait(&Q->read_ready, &Q->lock);
+    }
+//    printf("THREE\n");
     // now we have exclusive access and queue is non-empty
 
     // check if key exists, if it does, delete the element and shift everything else over.
@@ -131,13 +174,15 @@ int queue_remove(struct queue *Q, char *item)
     else {
         perror("ERROR: key-not-found!\n");
     }
-
+//    printf("FOUR\n");
 //    --Q->head;
     if (Q->head == QUEUESIZE) Q->head = 0;
 
+//    printf("FIVE\n");
     pthread_mutex_unlock(&Q->lock);
     pthread_cond_signal(&Q->write_ready);
 
+//    printf("SIX\n");
     return EXIT_SUCCESS;
 }
 
