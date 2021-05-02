@@ -27,13 +27,14 @@
 #include <err.h>
 #include <pthread.h>
 #include <netinet/in.h>
+#include <signal.h>
 
 // Define parameters
 #define QUEUESIZE 10000000    // size of key-value queue
 #define KEYSIZE 100
 #define VALUESIZE 100
 #define DEBUG_QUEUE 0
-#define SERVER_PORT 18001
+#define SERVER_PORT 18000
 #define MAXLINE 4096
 #define DEBUG_SOCKETS 1
 #define SA struct sockaddr
@@ -206,7 +207,7 @@ char* bin2hex(const unsigned char *input, size_t len) {
 }
 
 int commandHandler(char * command) {
-    printf("read command: %s. Compared to DEL and DELnewline: %d %d\n", command, strcmp(command, "DEL"), strcmp(command, "DEL\n"));
+//    printf("read command: %s. Compared to DEL and DELnewline: %d %d\n", command, strcmp(command, "DEL"), strcmp(command, "DEL\n"));
     if (strcmp(command, "SET") == 0 || strcmp(command, "SET\n") == 0) {
         return 0;
     }
@@ -220,6 +221,12 @@ int commandHandler(char * command) {
         return 3;
     }
 
+}
+
+// handles cntrl C when the user ends a connection
+void sig_handler(int signum){
+    //Return type of the handler function should be void
+    printf("\nInside handler function\n");
 }
 
 // ------------------------------- END OF HANDLING COMMANDS -------------------------------
@@ -273,6 +280,7 @@ int main(int argc, char *argv[argc]) {
 //        memset(recvline, 0, MAXLINE);
 
             int escape = 0;
+            signal(SIGINT,sig_handler);
             while (escape == 0) {
                 // read client message
                 int counter = 0;
@@ -283,7 +291,7 @@ int main(int argc, char *argv[argc]) {
                 char recvline[MAXLINE + 1];
                 while ((n = read(connfd, recvline, MAXLINE - 1)) > 0) {
                     char word[1000] = "";
-//                fprintf(stdout, "\nRECVLINE: %s WORD: %s\n", recvline, word);
+                fprintf(stdout, "\nRECVLINE: %s WORD: %s\n", recvline, word);
 //            strcpy(word, recvline);
                     strncpy(word, recvline, strlen(recvline) - 2);
                     strcpy(recvline, "");
@@ -293,7 +301,7 @@ int main(int argc, char *argv[argc]) {
                         strncpy(substr, word, 3);
                         strcpy(word, substr);
                     }
-                    fprintf(stdout, "\nRECVLINE: %s WORD: %s\n", recvline, word);
+//                    fprintf(stdout, "\nRECVLINE: %s WORD: %s\n", recvline, word);
 //            printf("==========%s=========", word);
                     if (word[strlen(word) - 1] == '\n') {
 //                printf("NEWLINE DETECTED!\n");
@@ -314,9 +322,12 @@ int main(int argc, char *argv[argc]) {
                                 commandType = 2;
                             }
                         } else {
-                            perror("INVALID COMMAND!\n");
+                            printf("%d%d%d", word[0], word[1], word[2]);
+                            perror(" INVALID COMMAND!\n");
                             snprintf((char *) buff, sizeof(buff), "INVALID COMMAND! Ending Program.\n");
                             queueDestroy(&Q);
+                            escape = 1;
+                            break;
                             return EXIT_FAILURE;
                         }
                     }
@@ -333,8 +344,12 @@ int main(int argc, char *argv[argc]) {
                     memset(recvline, 0, MAXLINE);
                     recvline[0] = '\0';
                     strcpy(recvline, "");
-                    printf("CONTENTS OF RECV AFTER CLEAN: %s", recvline);
+//                    printf("CONTENTS OF RECV AFTER CLEAN: %s", recvline);
                     counter++;
+                }
+
+                if (escape) {
+                    continue;
                 }
 
                 if (n < 0) {
@@ -343,15 +358,21 @@ int main(int argc, char *argv[argc]) {
                     return EXIT_FAILURE;
                 }
 
-                // response
-                snprintf((char *) buff, sizeof(buff), "HTTP/1.0 200 OK\r\n\r\nHello :)");
+//                // response
+//                snprintf((char *) buff, sizeof(buff), "HTTP/1.0 200 OK\r\n\r\nHello :)");
 
                 if (commandType == 0) {
                     queue_add(&Q, paramOne, paramTwo);
+                    // response
+                    snprintf((char *) buff, sizeof(buff), "Added pair '%s':'%s'\n", paramOne, paramTwo);
                 } else if (commandType == 1) {
-                    queue_get(&Q, paramOne);
+                    printf("KEY %s HAS VALUE %s\n", paramOne, queue_get(&Q, paramOne));
+                    // response
+                    snprintf((char *) buff, sizeof(buff), "Key %s has value %s\n", paramOne, queue_get(&Q, paramOne));
                 } else {
                     queue_remove(&Q, paramOne);
+                    // response
+                    snprintf((char *) buff, sizeof(buff), "Removed pair at key %s\n", paramOne);
                 }
 
                 printf("CURRENT CONTENTS OF THE QUEUE:\n");
@@ -361,6 +382,7 @@ int main(int argc, char *argv[argc]) {
             }
             // closing things
             write(connfd, (char *) buff, strlen((char *) buff));
+            printf("CLOSING OLD CONNECTION.\n");
             close(connfd);
         }
     }
