@@ -30,11 +30,11 @@
 #include <signal.h>
 
 // Define parameters
-#define QUEUESIZE 10000000    // size of key-value queue
+#define QUEUESIZE 1000000    // size of key-value queue
 #define KEYSIZE 100
 #define VALUESIZE 100
 #define DEBUG_QUEUE 0
-#define SERVER_PORT 18000
+#define SERVER_PORT 18001
 #define SERVER_BACKLOG 100
 #define MAXLINE 4096
 #define DEBUG_SOCKETS 1
@@ -285,10 +285,22 @@ void sig_handler(int signum){
 // ------------------------------- END OF HANDLING COMMANDS -------------------------------
 
 void * connection(void *arguements) {
-    struct arg_struct *args = (struct arg_struct *) arguements;
-    int connfd = args->connfd_STRUCT;
-    int n = args->n;
-    struct queue *Q = args->Q;
+//    struct arg_struct *args = malloc(sizeof (struct arg_struct));
+//    args = (struct arg_struct *) arguements;
+    sleep(2);
+    printf("copied struct\n");
+
+    int connfd = ((struct arg_struct *) arguements)->connfd_STRUCT;
+    sleep(2);
+    printf("copied FD: %d\n", connfd);
+
+    int n = ((struct arg_struct *) arguements)->n;
+    sleep(2);
+    printf("copied n: %d\n", n);
+
+    struct queue *Q = ((struct arg_struct *) arguements)->Q;
+    sleep(2);
+    printf("copied queue\n");
 
     char buff[MAXLINE + 1];
     int escape = 0;
@@ -409,6 +421,7 @@ void * connection(void *arguements) {
     write(connfd, (char *) buff, strlen((char *) buff));
     printf("CLOSING OLD CONNECTION.\n");
     close(connfd);
+    free(arguements);
 }
 
 int main(int argc, char *argv[argc]) {
@@ -458,15 +471,17 @@ int main(int argc, char *argv[argc]) {
             connfd = accept(listenfd, (SA *) NULL, NULL);
 
             // MULTITHREADING: Each new connection gets its own thread, so message overlapping does not occur. also efficient. and cool.
-            struct arg_struct args;
-            args.connfd_STRUCT = connfd;
-            args.Q = &Q;
-            args.n = n;
+
             pthread_t t;
+            n = 0;
             //TODO: something is wrong with the following line. fix it, and we will have multithreading.
             //HYPOTHESIS: it has something to do with lines 461 thru 466, this is where args is constantly redifined. our old threads lose a pointer to it.
-            pthread_create(&t, NULL, connection, (void *)&args);
-//            sleep(15);
+            struct arg_struct *args2 = malloc(sizeof (struct arg_struct));
+            args2->connfd_STRUCT = connfd;
+            args2->Q = &Q;
+            args2->n = n;
+            pthread_create(&t, NULL, connection, (void *)args2);
+            sleep(15);
 //            connection((void* )&args);
         }
         #pragma clang diagnostic pop
