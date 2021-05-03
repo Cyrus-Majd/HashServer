@@ -34,7 +34,7 @@
 #define KEYSIZE 100
 #define VALUESIZE 100
 #define DEBUG_QUEUE 0
-#define SERVER_PORT 18001
+#define SERVER_PORT 18000
 #define SERVER_BACKLOG 100
 #define MAXLINE 4096
 #define DEBUG_SOCKETS 1
@@ -56,6 +56,13 @@ struct queue {
     pthread_mutex_t lock;
     pthread_cond_t read_ready;  // wait for count > 0
     pthread_cond_t write_ready; // wait for count < QUEUESIZE
+};
+
+// holds arguements for multithreaded call to connection()
+struct arg_struct {
+    int connfd_STRUCT;
+    struct queue *Q;
+    int n;
 };
 
 // Method definitions
@@ -277,6 +284,132 @@ void sig_handler(int signum){
 
 // ------------------------------- END OF HANDLING COMMANDS -------------------------------
 
+void * connection(void *arguements) {
+    struct arg_struct *args = (struct arg_struct *) arguements;
+    int connfd = args->connfd_STRUCT;
+    int n = args->n;
+    struct queue *Q = args->Q;
+
+    char buff[MAXLINE + 1];
+    int escape = 0;
+//            signal(SIGINT,sig_handler);
+    while (escape == 0) {
+        // read client message
+        int counter = 0;
+        int limit = 0;
+        int commandType;
+        char paramOne[1000] = "";
+        char paramTwo[1000] = "";
+        char recvline[MAXLINE + 1];
+        while ((n = read(connfd, recvline, MAXLINE - 1)) > 0) {
+            char word[1000] = "";
+            fprintf(stdout, "\nRECVLINE: %s WORD: %s\n", recvline, word);
+//            strcpy(word, recvline);
+            strncpy(word, recvline, strlen(recvline) - 2);
+            strcpy(recvline, "");
+            strcat(word, "");
+            if (counter == 0) {
+                char substr[7];
+                strncpy(substr, word, 3);
+                strcpy(word, substr);
+            }
+//                    fprintf(stdout, "\nRECVLINE: %s WORD: %s\n", recvline, word);
+//            printf("==========%s=========", word);
+            if (word[strlen(word) - 1] == '\n') {
+//                printf("NEWLINE DETECTED!\n");
+                word[strlen(word) - 2] = '\0';
+            }
+
+            if (counter == 0) {
+//                printf("TESING: %s", recvline);
+                int tmp = commandHandler(word);
+                if (tmp == 0) { // we have a SET, so 3 arguements
+                    limit = 1;
+                    commandType = 0;
+                } else if (tmp == 1 || tmp == 2) {
+                    limit = 0; // either a GET or a DEL
+                    if (tmp == 1) {
+                        commandType = 1;
+                    } else {
+                        commandType = 2;
+                    }
+                } else {
+                    printf("%d%d%d", word[0], word[1], word[2]);
+                    perror(" INVALID COMMAND!\n");
+                    snprintf((char *) buff, sizeof(buff), "INVALID COMMAND! Ending Program.\n");
+//                            queueDestroy(&Q);
+                    escape = 1;
+                    break;
+                }
+            }
+            if (counter == 1) {
+                strcpy(paramOne, word);
+            }
+            if (counter == 2) {
+                strcpy(paramTwo, word);
+            }
+            if (counter > limit) {
+                break;
+            }
+
+            memset(recvline, 0, MAXLINE);
+            recvline[0] = '\0';
+            strcpy(recvline, "");
+//                    printf("CONTENTS OF RECV AFTER CLEAN: %s", recvline);
+            counter++;
+        }
+
+        if (escape) {
+            continue;
+        }
+
+        if (n < 0) {
+            perror("read error!\n");
+            queueDestroy(Q);
+            escape = 1;
+            break;
+        }
+
+//                // response
+//                snprintf((char *) buff, sizeof(buff), "HTTP/1.0 200 OK\r\n\r\nHello :)");
+
+        if (commandType == 0) {
+            queue_add(Q, paramOne, paramTwo);
+            // response
+            snprintf((char *) buff, sizeof(buff), "Added pair '%s':'%s'\n", paramOne, paramTwo);
+            write(connfd, "OKS\n", strlen("OKS\n"));
+        } else if (commandType == 1) {
+            // if the element exists or not. if doesnt, return key not found (KNF) error
+            if (alreadyExists(Q, paramOne)) {
+                printf("KEY %s HAS VALUE %s\n", paramOne, queue_get(Q, paramOne));
+                // response
+                snprintf((char *) buff, sizeof(buff), "Key %s has value %s\n", paramOne, queue_get(Q, paramOne));
+                char tmpGetStr[100] = "";
+                strcpy(tmpGetStr, queue_get(Q, paramOne));
+                strcat(tmpGetStr, "\n");
+                write(connfd, "OKG\n", strlen("OKG\n"));
+                write(connfd, tmpGetStr, strlen(tmpGetStr));
+            }
+            else {
+                write(connfd, "KNF\n", strlen("KNF\n"));
+            }
+        } else {
+            queue_remove(Q, paramOne);
+            // response
+            snprintf((char *) buff, sizeof(buff), "Removed pair at key %s\n", paramOne);
+            write(connfd, "OKD\n", strlen("OKD\n"));
+        }
+
+        printf("CURRENT CONTENTS OF THE QUEUE:\n");
+        queuePrint(Q);
+        printf("=============================\n\n");
+
+    }
+    // closing things
+    write(connfd, (char *) buff, strlen((char *) buff));
+    printf("CLOSING OLD CONNECTION.\n");
+    close(connfd);
+}
 
 int main(int argc, char *argv[argc]) {
     printf("Hello, World!\n");
@@ -312,8 +445,10 @@ int main(int argc, char *argv[argc]) {
 
     if (DEBUG_SOCKETS) {
         // endless loop POG. listening for connections B)
+        // macro to suppress annoying infinite loop warnings. like duh i know im in an infinite loop silly compooter it is by DESIGN
+        #pragma clang diagnostic push
+        #pragma ide diagnostic ignored "EndlessLoop"
         for (;;) {
-            char buff[MAXLINE + 1];
             struct sockaddr_in addr;
             socklen_t addr_len;
 
@@ -322,128 +457,19 @@ int main(int argc, char *argv[argc]) {
             fflush(stdout);
             connfd = accept(listenfd, (SA *) NULL, NULL);
 
-            // zero out the recieve buffer to make sure it ends null-terminated.
-//        memset(recvline, 0, MAXLINE);
-
-            int escape = 0;
-//            signal(SIGINT,sig_handler);
-            while (escape == 0) {
-                // read client message
-                int counter = 0;
-                int limit = 0;
-                int commandType;
-                char paramOne[1000] = "";
-                char paramTwo[1000] = "";
-                char recvline[MAXLINE + 1];
-                while ((n = read(connfd, recvline, MAXLINE - 1)) > 0) {
-                    char word[1000] = "";
-                fprintf(stdout, "\nRECVLINE: %s WORD: %s\n", recvline, word);
-//            strcpy(word, recvline);
-                    strncpy(word, recvline, strlen(recvline) - 2);
-                    strcpy(recvline, "");
-                    strcat(word, "");
-                    if (counter == 0) {
-                        char substr[7];
-                        strncpy(substr, word, 3);
-                        strcpy(word, substr);
-                    }
-//                    fprintf(stdout, "\nRECVLINE: %s WORD: %s\n", recvline, word);
-//            printf("==========%s=========", word);
-                    if (word[strlen(word) - 1] == '\n') {
-//                printf("NEWLINE DETECTED!\n");
-                        word[strlen(word) - 2] = '\0';
-                    }
-
-                    if (counter == 0) {
-//                printf("TESING: %s", recvline);
-                        int tmp = commandHandler(word);
-                        if (tmp == 0) { // we have a SET, so 3 arguements
-                            limit = 1;
-                            commandType = 0;
-                        } else if (tmp == 1 || tmp == 2) {
-                            limit = 0; // either a GET or a DEL
-                            if (tmp == 1) {
-                                commandType = 1;
-                            } else {
-                                commandType = 2;
-                            }
-                        } else {
-                            printf("%d%d%d", word[0], word[1], word[2]);
-                            perror(" INVALID COMMAND!\n");
-                            snprintf((char *) buff, sizeof(buff), "INVALID COMMAND! Ending Program.\n");
-//                            queueDestroy(&Q);
-                            escape = 1;
-                            break;
-                            return EXIT_FAILURE;
-                        }
-                    }
-                    if (counter == 1) {
-                        strcpy(paramOne, word);
-                    }
-                    if (counter == 2) {
-                        strcpy(paramTwo, word);
-                    }
-                    if (counter > limit) {
-                        break;
-                    }
-
-                    memset(recvline, 0, MAXLINE);
-                    recvline[0] = '\0';
-                    strcpy(recvline, "");
-//                    printf("CONTENTS OF RECV AFTER CLEAN: %s", recvline);
-                    counter++;
-                }
-
-                if (escape) {
-                    continue;
-                }
-
-                if (n < 0) {
-                    perror("read error!\n");
-                    queueDestroy(&Q);
-                    return EXIT_FAILURE;
-                }
-
-//                // response
-//                snprintf((char *) buff, sizeof(buff), "HTTP/1.0 200 OK\r\n\r\nHello :)");
-
-                if (commandType == 0) {
-                    queue_add(&Q, paramOne, paramTwo);
-                    // response
-                    snprintf((char *) buff, sizeof(buff), "Added pair '%s':'%s'\n", paramOne, paramTwo);
-                    write(connfd, "OKS\n", strlen("OKS\n"));
-                } else if (commandType == 1) {
-                    // if the element exists or not. if doesnt, return key not found (KNF) error
-                    if (alreadyExists(&Q, paramOne)) {
-                        printf("KEY %s HAS VALUE %s\n", paramOne, queue_get(&Q, paramOne));
-                        // response
-                        snprintf((char *) buff, sizeof(buff), "Key %s has value %s\n", paramOne, queue_get(&Q, paramOne));
-                        char tmpGetStr[100] = "";
-                        strcpy(tmpGetStr, queue_get(&Q, paramOne));
-                        strcat(tmpGetStr, "\n");
-                        write(connfd, "OKG\n", strlen("OKG\n"));
-                        write(connfd, tmpGetStr, strlen(tmpGetStr));
-                    }
-                    else {
-                        write(connfd, "KNF\n", strlen("KNF\n"));
-                    }
-                } else {
-                    queue_remove(&Q, paramOne);
-                    // response
-                    snprintf((char *) buff, sizeof(buff), "Removed pair at key %s\n", paramOne);
-                    write(connfd, "OKD\n", strlen("OKD\n"));
-                }
-
-                printf("CURRENT CONTENTS OF THE QUEUE:\n");
-                queuePrint(&Q);
-                printf("=============================\n\n");
-
-            }
-            // closing things
-            write(connfd, (char *) buff, strlen((char *) buff));
-            printf("CLOSING OLD CONNECTION.\n");
-            close(connfd);
+            // MULTITHREADING: Each new connection gets its own thread, so message overlapping does not occur. also efficient. and cool.
+            struct arg_struct args;
+            args.connfd_STRUCT = connfd;
+            args.Q = &Q;
+            args.n = n;
+            pthread_t t;
+            //TODO: something is wrong with the following line. fix it, and we will have multithreading.
+            //HYPOTHESIS: it has something to do with lines 461 thru 466, this is where args is constantly redifined. our old threads lose a pointer to it.
+            pthread_create(&t, NULL, connection, (void *)&args);
+//            sleep(15);
+//            connection((void* )&args);
         }
+        #pragma clang diagnostic pop
     }
 
     if (DEBUG_QUEUE) {
