@@ -34,7 +34,7 @@
 #define KEYSIZE 100
 #define VALUESIZE 100
 #define DEBUG_QUEUE 0
-#define SERVER_PORT 18001
+#define SERVER_PORT 18000
 #define SERVER_BACKLOG 100
 #define MAXLINE 4096
 #define DEBUG_SOCKETS 1
@@ -287,20 +287,20 @@ void sig_handler(int signum){
 void * connection(void *arguements) {
 //    struct arg_struct *args = malloc(sizeof (struct arg_struct));
 //    args = (struct arg_struct *) arguements;
-    sleep(2);
-    printf("copied struct\n");
+//    sleep(2);
+//    printf("copied struct\n");
 
     int connfd = ((struct arg_struct *) arguements)->connfd_STRUCT;
-    sleep(2);
-    printf("copied FD: %d\n", connfd);
+//    sleep(2);
+//    printf("copied FD: %d\n", connfd);
 
     int n = ((struct arg_struct *) arguements)->n;
-    sleep(2);
-    printf("copied n: %d\n", n);
+//    sleep(2);
+//    printf("copied n: %d\n", n);
 
     struct queue *Q = ((struct arg_struct *) arguements)->Q;
-    sleep(2);
-    printf("copied queue\n");
+//    sleep(2);
+//    printf("copied queue\n");
 
     char buff[MAXLINE + 1];
     int escape = 0;
@@ -335,11 +335,11 @@ void * connection(void *arguements) {
             if (counter == 0) {
 //                printf("TESING: %s", recvline);
                 int tmp = commandHandler(word);
-                if (tmp == 0) { // we have a SET, so 3 arguements
-                    limit = 1;
+                if (tmp == 0) { // we have a SET, so 4 arguements (including "SET")
+                    limit = 2;
                     commandType = 0;
                 } else if (tmp == 1 || tmp == 2) {
-                    limit = 0; // either a GET or a DEL
+                    limit = 1; // either a GET or a DEL
                     if (tmp == 1) {
                         commandType = 1;
                     } else {
@@ -354,10 +354,10 @@ void * connection(void *arguements) {
                     break;
                 }
             }
-            if (counter == 1) {
+            if (counter == 2) {
                 strcpy(paramOne, word);
             }
-            if (counter == 2) {
+            if (counter == 3) {
                 strcpy(paramTwo, word);
             }
             if (counter > limit) {
@@ -400,16 +400,28 @@ void * connection(void *arguements) {
                 strcpy(tmpGetStr, queue_get(Q, paramOne));
                 strcat(tmpGetStr, "\n");
                 write(connfd, "OKG\n", strlen("OKG\n"));
+                char lenBuff[20] = "";
+                sprintf(lenBuff, "%d", (int) strlen(tmpGetStr));
+                strcat(lenBuff,"\n");
+                write(connfd, lenBuff, 17);
                 write(connfd, tmpGetStr, strlen(tmpGetStr));
             }
             else {
                 write(connfd, "KNF\n", strlen("KNF\n"));
             }
         } else {
-            queue_remove(Q, paramOne);
             // response
             snprintf((char *) buff, sizeof(buff), "Removed pair at key %s\n", paramOne);
             write(connfd, "OKD\n", strlen("OKD\n"));
+            char lenBuff[20] = "";
+            char tmpGetStr[100] = "";
+            strcpy(tmpGetStr, queue_get(Q, paramOne));
+            strcat(tmpGetStr, "\n");
+            queue_remove(Q, paramOne);
+            sprintf(lenBuff, "%d", (int) strlen(tmpGetStr));
+            strcat(lenBuff,"\n");
+            write(connfd, lenBuff, 17);
+            write(connfd, tmpGetStr, strlen(tmpGetStr));
         }
 
         printf("CURRENT CONTENTS OF THE QUEUE:\n");
@@ -481,7 +493,7 @@ int main(int argc, char *argv[argc]) {
             args2->Q = &Q;
             args2->n = n;
             pthread_create(&t, NULL, connection, (void *)args2);
-            sleep(15);
+//            sleep(15);
 //            connection((void* )&args);
         }
         #pragma clang diagnostic pop
