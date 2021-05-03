@@ -34,7 +34,8 @@
 #define KEYSIZE 100
 #define VALUESIZE 100
 #define DEBUG_QUEUE 0
-#define SERVER_PORT 18000
+#define SERVER_PORT 18001
+#define SERVER_BACKLOG 100
 #define MAXLINE 4096
 #define DEBUG_SOCKETS 1
 #define SA struct sockaddr
@@ -301,7 +302,7 @@ int main(int argc, char *argv[argc]) {
         return EXIT_FAILURE;
     }
 
-    if (listen(listenfd, 10) < 0) {
+    if (listen(listenfd, SERVER_BACKLOG) < 0) {
         perror("listening error!\n");
         return EXIT_FAILURE;
     }
@@ -410,14 +411,27 @@ int main(int argc, char *argv[argc]) {
                     queue_add(&Q, paramOne, paramTwo);
                     // response
                     snprintf((char *) buff, sizeof(buff), "Added pair '%s':'%s'\n", paramOne, paramTwo);
+                    write(connfd, "OKS\n", strlen("OKS\n"));
                 } else if (commandType == 1) {
-                    printf("KEY %s HAS VALUE %s\n", paramOne, queue_get(&Q, paramOne));
-                    // response
-                    snprintf((char *) buff, sizeof(buff), "Key %s has value %s\n", paramOne, queue_get(&Q, paramOne));
+                    // if the element exists or not. if doesnt, return key not found (KNF) error
+                    if (alreadyExists(&Q, paramOne)) {
+                        printf("KEY %s HAS VALUE %s\n", paramOne, queue_get(&Q, paramOne));
+                        // response
+                        snprintf((char *) buff, sizeof(buff), "Key %s has value %s\n", paramOne, queue_get(&Q, paramOne));
+                        char tmpGetStr[100] = "";
+                        strcpy(tmpGetStr, queue_get(&Q, paramOne));
+                        strcat(tmpGetStr, "\n");
+                        write(connfd, "OKG\n", strlen("OKG\n"));
+                        write(connfd, tmpGetStr, strlen(tmpGetStr));
+                    }
+                    else {
+                        write(connfd, "KNF\n", strlen("KNF\n"));
+                    }
                 } else {
                     queue_remove(&Q, paramOne);
                     // response
                     snprintf((char *) buff, sizeof(buff), "Removed pair at key %s\n", paramOne);
+                    write(connfd, "OKD\n", strlen("OKD\n"));
                 }
 
                 printf("CURRENT CONTENTS OF THE QUEUE:\n");
