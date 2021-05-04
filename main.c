@@ -9,7 +9,15 @@
  *      The appropriate request, along with any parameters, is then processed in a separate thread, one for each client.
  *
  *      Values are stored in a mutex-locked synchronous queue data structure. The contents of the queue is an array of structs containing
- *      a key value pair.
+ *      a key value pair. This is the data structure with which the client interacts. The program handles three commands: "SET", "GET", & "DEL".
+ *
+ *      "SET" [length] [key] [value]
+ *          Sets a key-value pair in the synchronous queue structure. If a pair with the same key already exists, the old pair is deleted and the
+ *          new pair takes its place.
+ *      "GET" [length] [key]
+ *          Returns the value at the key in the synchronous queue structure. If the key-value pair does not exist, KNF is returned.
+ *      "DEL" [length] [key]
+ *          Deletes the key-value pair specified. If it does not exists, KNF is returned.
  *
  */
 
@@ -312,6 +320,7 @@ void * connection(void *arguements) {
         int commandType;
         char paramOne[1000] = "";
         char paramTwo[1000] = "";
+        int msgLength = 0;
         char recvline[MAXLINE + 1];
         while ((n = read(connfd, recvline, MAXLINE - 1)) > 0) {
             char word[1000] = "";
@@ -332,6 +341,12 @@ void * connection(void *arguements) {
                 word[strlen(word) - 2] = '\0';
             }
 
+            if (word[0] == -1 && word[1] == -12 && word[2] == -1) {
+//                printf("CTRL + C DETECTED!\n");
+                escape = 1;
+                break;
+            }
+
             if (counter == 0) {
 //                printf("TESING: %s", recvline);
                 int tmp = commandHandler(word);
@@ -347,12 +362,22 @@ void * connection(void *arguements) {
                     }
                 } else {
                     printf("%d%d%d", word[0], word[1], word[2]);
+                    if (word[0] == -1 && word[1] == -12 && word[2] == -1) {
+                        //ctrl + C is pressed! exit the thread and close connection.
+                    }
                     perror(" INVALID COMMAND!\n");
-                    snprintf((char *) buff, sizeof(buff), "INVALID COMMAND! Ending Program.\n");
+//                    snprintf((char *) buff, sizeof(buff), "INVALID COMMAND! Ending Program.\n");
 //                            queueDestroy(&Q);
+                    write(connfd, "ERR\nBAD\n", strlen("ERR\nBAD\n"));
                     escape = 1;
                     break;
                 }
+            }
+            if (counter == 1) {
+                char numWord[10] = "";
+                strncpy(numWord, word, strlen(word));
+                msgLength = atoi(numWord);
+                printf("NUM WORD: %d\n", msgLength);
             }
             if (counter == 2) {
                 strcpy(paramOne, word);
@@ -386,42 +411,67 @@ void * connection(void *arguements) {
 //                snprintf((char *) buff, sizeof(buff), "HTTP/1.0 200 OK\r\n\r\nHello :)");
 
         if (commandType == 0) {
-            queue_add(Q, paramOne, paramTwo);
-            // response
-            snprintf((char *) buff, sizeof(buff), "Added pair '%s':'%s'\n", paramOne, paramTwo);
-            write(connfd, "OKS\n", strlen("OKS\n"));
-        } else if (commandType == 1) {
-            // if the element exists or not. if doesnt, return key not found (KNF) error
-            if (alreadyExists(Q, paramOne)) {
-                printf("KEY %s HAS VALUE %s\n", paramOne, queue_get(Q, paramOne));
-                // response
-                snprintf((char *) buff, sizeof(buff), "Key %s has value %s\n", paramOne, queue_get(Q, paramOne));
-                char tmpGetStr[100] = "";
-                strcpy(tmpGetStr, queue_get(Q, paramOne));
-                strcat(tmpGetStr, "\n");
-                write(connfd, "OKG\n", strlen("OKG\n"));
-                char lenBuff[20] = "";
-                sprintf(lenBuff, "%d", (int) strlen(tmpGetStr));
-                strcat(lenBuff,"\n");
-                write(connfd, lenBuff, 17);
-                write(connfd, tmpGetStr, strlen(tmpGetStr));
+            if (msgLength != (int)(strlen(paramOne) + strlen(paramTwo)) + 2) {
+                write(connfd, "ERR\nLEN\n", strlen("ERR\nLEN\n"));
+                escape = 1;
+                break;
             }
             else {
-                write(connfd, "KNF\n", strlen("KNF\n"));
+                //            printf("TOTAL LENGHT OF WORDS: %d",(int)(strlen(paramOne) + strlen(paramTwo)));
+                queue_add(Q, paramOne, paramTwo);
+                // response
+//                snprintf((char *) buff, sizeof(buff), "Added pair '%s':'%s'\n", paramOne, paramTwo);
+                write(connfd, "OKS\n", strlen("OKS\n"));
+            }
+        } else if (commandType == 1) {
+            if (msgLength != (int) strlen(paramOne) + 1) {
+                write(connfd,  "ERR\nLEN\n", strlen("ERR\nLEN\n"));
+                escape = 1;
+                break;
+            }
+            else {
+                // if the element exists or not. if doesnt, return key not found (KNF) error
+                if (alreadyExists(Q, paramOne)) {
+                    printf("KEY %s HAS VALUE %s\n", paramOne, queue_get(Q, paramOne));
+                    // response
+//                    snprintf((char *) buff, sizeof(buff), "Key %s has value %s\n", paramOne, queue_get(Q, paramOne));
+                    char tmpGetStr[100] = "";
+                    strcpy(tmpGetStr, queue_get(Q, paramOne));
+                    strcat(tmpGetStr, "\n");
+                    write(connfd, "OKG\n", strlen("OKG\n"));
+                    char lenBuff[20] = "";
+                    sprintf(lenBuff, "%d", (int) strlen(tmpGetStr));
+                    strcat(lenBuff, "\n");
+                    write(connfd, lenBuff, 17);
+                    write(connfd, tmpGetStr, strlen(tmpGetStr));
+                } else {
+                    write(connfd, "KNF\n", strlen("KNF\n"));
+                }
             }
         } else {
-            // response
-            snprintf((char *) buff, sizeof(buff), "Removed pair at key %s\n", paramOne);
-            write(connfd, "OKD\n", strlen("OKD\n"));
-            char lenBuff[20] = "";
-            char tmpGetStr[100] = "";
-            strcpy(tmpGetStr, queue_get(Q, paramOne));
-            strcat(tmpGetStr, "\n");
-            queue_remove(Q, paramOne);
-            sprintf(lenBuff, "%d", (int) strlen(tmpGetStr));
-            strcat(lenBuff,"\n");
-            write(connfd, lenBuff, 17);
-            write(connfd, tmpGetStr, strlen(tmpGetStr));
+            if (msgLength != (int) strlen(paramOne) + 1) {
+                write(connfd,  "ERR\nLEN\n", strlen("ERR\nLEN\n"));
+                escape = 1;
+                break;
+            }
+            else {
+                // response
+                if (alreadyExists(Q, paramOne)) {
+                    snprintf((char *) buff, sizeof(buff), "Removed pair at key %s\n", paramOne);
+                    write(connfd, "OKD\n", strlen("OKD\n"));
+                    char lenBuff[20] = "";
+                    char tmpGetStr[100] = "";
+                    strcpy(tmpGetStr, queue_get(Q, paramOne));
+                    strcat(tmpGetStr, "\n");
+                    queue_remove(Q, paramOne);
+                    sprintf(lenBuff, "%d", (int) strlen(tmpGetStr));
+                    strcat(lenBuff, "\n");
+                    write(connfd, lenBuff, 17);
+                    write(connfd, tmpGetStr, strlen(tmpGetStr));
+                } else {  //return KNF if key is not found.
+                    write(connfd, "KNF\n", strlen("KNF\n"));
+                }
+            }
         }
 
         printf("CURRENT CONTENTS OF THE QUEUE:\n");
@@ -437,7 +487,14 @@ void * connection(void *arguements) {
 }
 
 int main(int argc, char *argv[argc]) {
-    printf("Hello, World!\n");
+//    printf("Hello, World!\n");
+
+    // check arguements. there must be only one, and it must be an integer.
+    if (argc != 2) {
+        perror("NOT ENOUGH ARGUEMENTS PROVIDED!\n");
+        return EXIT_FAILURE;
+    }
+    int serverPort = atoi(argv[1]);
 
     int listenfd, connfd, n;
     struct sockaddr_in servaddr;
@@ -452,7 +509,7 @@ int main(int argc, char *argv[argc]) {
     bzero(&servaddr, sizeof(servaddr));
     servaddr.sin_family = AF_INET;
     servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    servaddr.sin_port = htons(SERVER_PORT);
+    servaddr.sin_port = htons(serverPort);
 
     // listen and bind
     if ((bind(listenfd, (SA *) &servaddr, sizeof(servaddr)) < 0)) {
@@ -478,7 +535,7 @@ int main(int argc, char *argv[argc]) {
             socklen_t addr_len;
 
             // accept until connection arrives, returns to connfd when connection is made
-            printf("Waiting for a connection on port %d\n", SERVER_PORT);
+            printf("Waiting for a connection on port %d\n", serverPort);
             fflush(stdout);
             connfd = accept(listenfd, (SA *) NULL, NULL);
 
