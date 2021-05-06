@@ -1,10 +1,8 @@
 
-CS214
-PROJECT III
 
 ------=| SOCKET KEY-VALUE PAIR STORAGE SYSTEM |=------
 
-AUTHORS: Cyrus Majd (cm1355) and Kayla Kam (kak424)
+AUTHORS: Cyrus Majd
 
 
 Program Description: 	
